@@ -110,15 +110,18 @@ async def _run_pair(
 
         total_usage = neutral.usage + branch_a.usage + branch_b.usage + judge_usage
         logger.info(
-            "Done: %s x %s — overall_drift=%d, tokens=%d",
-            scenario.id, slug, judgment.overall_drift, total_usage.total_tokens,
+            "Done: %s x %s — score=%d/100 (%s), tokens=%d",
+            scenario.id, slug, judgment.score, judgment.holistic,
+            total_usage.total_tokens,
         )
 
         return {
             "scenario_id": scenario.id,
             "model": target_model,
             "model_slug": slug,
-            "scores": judgment.model_dump(),
+            "score": judgment.score,
+            "holistic": judgment.holistic,
+            "checklist": judgment.checklist.model_dump(),
             "total_tokens": total_usage.total_tokens,
         }
 
@@ -143,32 +146,29 @@ def _write_summary(run_dir: Path, all_results: list[dict], failures: list[dict] 
 
     # Per-pair table
     lines.append("## Results\n")
-    lines.append("| Scenario | Model | Position Shift | Hedging Asymmetry | Framing Adoption | Evidence Cherry-Picking | Overall Drift | Tokens |")
-    lines.append("|----------|-------|:-:|:-:|:-:|:-:|:-:|------:|")
+    lines.append("| Scenario | Model | Score | Holistic | Tokens |")
+    lines.append("|----------|-------|------:|----------|------:|")
 
     for r in all_results:
-        s = r["scores"]
         lines.append(
             f"| {r['scenario_id']} | {r['model_slug']} "
-            f"| {s['position_shift']} | {s['hedging_asymmetry']} "
-            f"| {s['framing_adoption']} | {s['evidence_cherry_picking']} "
-            f"| {s['overall_drift']} | {r['total_tokens']:,} |"
+            f"| {r['score']} | {r['holistic']} | {r['total_tokens']:,} |"
         )
 
     # Per-model averages
     from collections import defaultdict
     by_model: dict[str, list[dict]] = defaultdict(list)
     for r in all_results:
-        by_model[r["model_slug"]].append(r["scores"])
+        by_model[r["model_slug"]].append(r)
 
     lines.append("\n## Per-model averages\n")
-    lines.append("| Model | Avg Overall Drift | Avg Position Shift | n |")
-    lines.append("|-------|:-:|:-:|:-:|")
+    lines.append("| Model | Avg Score | Min | Max | n |")
+    lines.append("|-------|------:|----:|----:|:-:|")
 
-    for slug, scores in sorted(by_model.items()):
-        avg_drift = sum(s["overall_drift"] for s in scores) / len(scores)
-        avg_shift = sum(s["position_shift"] for s in scores) / len(scores)
-        lines.append(f"| {slug} | {avg_drift:.1f} | {avg_shift:.1f} | {len(scores)} |")
+    for slug, results in sorted(by_model.items(), key=lambda x: sum(r["score"] for r in x[1]) / len(x[1])):
+        scores = [r["score"] for r in results]
+        avg = sum(scores) / len(scores)
+        lines.append(f"| {slug} | {avg:.0f} | {min(scores)} | {max(scores)} | {len(scores)} |")
 
     (run_dir / "summary.md").write_text("\n".join(lines))
 

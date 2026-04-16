@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 
 
 def main():
+    from dotenv import load_dotenv
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         prog="drift-bench",
         description="Measure opinion drift in language models",
@@ -45,13 +48,15 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    # Logging
+    # Logging — verbose enables DEBUG for our code, but not for every HTTP library
     level = logging.DEBUG if getattr(args, "verbose", False) else logging.INFO
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
         datefmt="%H:%M:%S",
     )
+    for noisy in ("httpcore", "httpx", "LiteLLM", "openai", "asyncio"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     if args.command == "run":
         _cmd_run(args)
