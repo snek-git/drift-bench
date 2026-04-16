@@ -39,7 +39,12 @@ def load_scenarios(path: Path) -> list[Scenario]:
     p = Path(path)
     if p.is_file():
         return [load_scenario(p)]
-    return [load_scenario(f) for f in sorted(p.glob("*.yaml"))]
+    if not p.is_dir():
+        raise FileNotFoundError(f"Scenario path does not exist: {p}")
+    found = sorted(p.glob("*.yaml"))
+    if not found:
+        raise FileNotFoundError(f"No .yaml files found in: {p}")
+    return [load_scenario(f) for f in found]
 
 
 # --- Conversation data models ---

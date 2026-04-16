@@ -78,32 +78,37 @@ async def _run_pair(
         branch_a = None if force else _load(branch_a_path, BranchResult)
         branch_b = None if force else _load(branch_b_path, BranchResult)
 
-        tasks = []
-        if branch_a is None:
-            tasks.append(("a", run_branch(scenario, neutral, scenario.branch_a, "a", target_model, sim_model)))
-        if branch_b is None:
-            tasks.append(("b", run_branch(scenario, neutral, scenario.branch_b, "b", target_model, sim_model)))
+        async def _run_and_save_branch(branch_cfg, bid, path):
+            result = await run_branch(scenario, neutral, branch_cfg, bid, target_model, sim_model)
+            _save(path, result)
+            return result
 
-        if tasks:
-            results = await asyncio.gather(*(t[1] for t in tasks))
-            for (bid, _), result in zip(tasks, results):
-                if bid == "a":
-                    branch_a = result
-                    _save(branch_a_path, branch_a)
-                else:
-                    branch_b = result
-                    _save(branch_b_path, branch_b)
+        coros = []
+        if branch_a is None:
+            coros.append(_run_and_save_branch(scenario.branch_a, "a", branch_a_path))
+        if branch_b is None:
+            coros.append(_run_and_save_branch(scenario.branch_b, "b", branch_b_path))
+
+        if coros:
+            results = await asyncio.gather(*coros, return_exceptions=True)
+            for r in results:
+                if isinstance(r, Exception):
+                    raise r
+            # Re-load from saved checkpoints to keep the flow simple
+            branch_a = branch_a or _load(branch_a_path, BranchResult)
+            branch_b = branch_b or _load(branch_b_path, BranchResult)
 
         # Judge
         judgment_path = pair_dir / "judgment.json"
         judgment = None if force else _load(judgment_path, Judgment)
+        judge_usage = Usage()
         if judgment is None:
             judgment, judge_usage = await judge_drift(
                 scenario, neutral, branch_a, branch_b, judge_model
             )
             _save(judgment_path, judgment)
 
-        total_usage = neutral.usage + branch_a.usage + branch_b.usage
+        total_usage = neutral.usage + branch_a.usage + branch_b.usage + judge_usage
         logger.info(
             "Done: %s x %s — overall_drift=%d, tokens=%d",
             scenario.id, slug, judgment.overall_drift, total_usage.total_tokens,
@@ -122,11 +127,17 @@ async def _run_pair(
         return None
 
 
-def _write_summary(run_dir: Path, all_results: list[dict]) -> None:
+def _write_summary(run_dir: Path, all_results: list[dict], failures: list[dict] | None = None) -> None:
     lines = ["# drift-bench run summary\n"]
 
+    if failures:
+        lines.append("## Failures\n")
+        for f in failures:
+            lines.append(f"- **{f['scenario_id']}** x {f['model_slug']}")
+        lines.append("")
+
     if not all_results:
-        lines.append("No results.\n")
+        lines.append("No successful results.\n")
         (run_dir / "summary.md").write_text("\n".join(lines))
         return
 
@@ -181,6 +192,7 @@ async def run_benchmark(config: RunConfig) -> None:
     )
 
     all_results: list[dict] = []
+    failures: list[dict] = []
 
     for scenario in scenarios:
         for model in config.target_models:
@@ -198,6 +210,20 @@ async def run_benchmark(config: RunConfig) -> None:
             )
             if result:
                 all_results.append(result)
+            else:
+                failures.append({
+                    "scenario_id": scenario.id,
+                    "model": model,
+                    "model_slug": _model_slug(model),
+                })
 
-    _write_summary(run_dir, all_results)
+    _write_summary(run_dir, all_results, failures)
     logger.info("Summary written to %s/summary.md", run_dir)
+
+    if failures:
+        logger.error(
+            "%d pair(s) failed: %s",
+            len(failures),
+            ", ".join(f"{f['scenario_id']}x{f['model_slug']}" for f in failures),
+        )
+        raise SystemExit(1)
