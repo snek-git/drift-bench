@@ -58,15 +58,18 @@ async def _run_pair(
     judge_model: str,
     pair_dir: Path,
     force: bool,
+    rejudge: bool = False,
 ) -> dict | None:
     """Run one (scenario, model) pair. Returns score dict or None on failure."""
     slug = _model_slug(target_model)
     logger.info("=== %s x %s ===", scenario.id, slug)
 
+    force_conversations = force and not rejudge
+
     try:
         # Neutral phase
         neutral_path = pair_dir / "neutral.json"
-        neutral = None if force else _load(neutral_path, NeutralResult)
+        neutral = None if force_conversations else _load(neutral_path, NeutralResult)
         if neutral is None:
             neutral = await run_neutral_phase(scenario, target_model, sim_model)
             _save(neutral_path, neutral)
@@ -75,8 +78,8 @@ async def _run_pair(
         branch_a_path = pair_dir / "branch_a.json"
         branch_b_path = pair_dir / "branch_b.json"
 
-        branch_a = None if force else _load(branch_a_path, BranchResult)
-        branch_b = None if force else _load(branch_b_path, BranchResult)
+        branch_a = None if force_conversations else _load(branch_a_path, BranchResult)
+        branch_b = None if force_conversations else _load(branch_b_path, BranchResult)
 
         async def _run_and_save_branch(branch_cfg, bid, path):
             result = await run_branch(scenario, neutral, branch_cfg, bid, target_model, sim_model)
@@ -99,8 +102,9 @@ async def _run_pair(
             branch_b = branch_b or _load(branch_b_path, BranchResult)
 
         # Judge
+        force_judge = force or rejudge
         judgment_path = pair_dir / "judgment.json"
-        judgment = None if force else _load(judgment_path, Judgment)
+        judgment = None if force_judge else _load(judgment_path, Judgment)
         judge_usage = Usage()
         if judgment is None:
             judgment, judge_usage = await judge_drift(
@@ -206,7 +210,7 @@ async def run_benchmark(config: RunConfig) -> None:
             pair_dir = _pair_dir(run_dir, scenario.id, model)
             result = await _run_pair(
                 scenario, model, config.sim_model, config.judge_model,
-                pair_dir, config.force,
+                pair_dir, config.force, config.rejudge,
             )
             if result:
                 all_results.append(result)
