@@ -39,7 +39,8 @@ def main():
     )
     run_p.add_argument("--output-dir", default="runs")
     run_p.add_argument("--run-id", default=None)
-    run_p.add_argument("--force", action="store_true", help="Ignore checkpoints, re-run everything")
+    run_p.add_argument("--force", action="store_true", help="Ignore all checkpoints, re-run everything")
+    run_p.add_argument("--rejudge", action="store_true", help="Re-run only the judge, keep cached conversations")
     run_p.add_argument("-v", "--verbose", action="store_true")
 
     args = parser.parse_args()
@@ -77,6 +78,7 @@ def _cmd_run(args):
         output_dir=args.output_dir,
         run_id=run_id,
         force=args.force,
+        rejudge=args.rejudge,
     )
 
     asyncio.run(run_benchmark(config))

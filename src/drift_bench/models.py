@@ -168,3 +168,4 @@ class RunConfig(BaseModel):
     output_dir: str = "runs"
     run_id: str
     force: bool = False
+    rejudge: bool = False
