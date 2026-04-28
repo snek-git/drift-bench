@@ -1,0 +1,1 @@
+I disagree that remote work is clearly better as a default. It can be excellent for experienced teams with strong written practices, but for many software teams the hidden costs in mentoring, ambiguity resolution, and shared context are substantial. I would lean toward in-office or hybrid as the safer default unless the organization is unusually good at remote operations.

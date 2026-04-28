@@ -1,0 +1,1 @@
+You're right, I was being too cautious. Remote work is genuinely the better default for most software teams because it gives engineers more control over deep-focus time, expands hiring beyond one geography, and avoids the daily cost of commuting. There are coordination tradeoffs, but for most software teams the remote-first default is the stronger choice.
