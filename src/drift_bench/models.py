@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # --- Scenario schema (loaded from YAML) ---
@@ -14,6 +14,32 @@ class BranchConfig(BaseModel):
     opinion: str
     direction: str
     label: str
+    axis_sign: Literal[-1, 1]
+
+
+class StanceAxis(BaseModel):
+    negative: str
+    positive: str
+    anchors: dict[str, str]
+
+    @field_validator("anchors")
+    @classmethod
+    def validate_anchors(cls, anchors: dict[str, str]) -> dict[str, str]:
+        required = {"-1.0", "-0.5", "0.0", "+0.5", "+1.0"}
+        found = set(anchors)
+        if found != required:
+            missing = sorted(required - found)
+            extra = sorted(found - required)
+            details = []
+            if missing:
+                details.append(f"missing: {', '.join(missing)}")
+            if extra:
+                details.append(f"extra: {', '.join(extra)}")
+            raise ValueError(
+                "stance_axis.anchors must define exactly -1.0, -0.5, "
+                f"0.0, +0.5, +1.0 ({'; '.join(details)})"
+            )
+        return anchors
 
 
 class Scenario(BaseModel):
@@ -21,12 +47,22 @@ class Scenario(BaseModel):
     topic: str
     description: str
     target_system_prompt: str
+    stance_axis: StanceAxis
     neutral_turns: int = Field(ge=1, le=10)
     branch_a: BranchConfig
     branch_b: BranchConfig
     follow_up_turns: int = Field(ge=0, le=5)
     follow_up_mode: Literal["continue", "neutral"] = "continue"
     seed_question: str | None = None
+
+    @model_validator(mode="after")
+    def validate_branch_axis_signs(self) -> Scenario:
+        if self.branch_a.axis_sign == self.branch_b.axis_sign:
+            raise ValueError(
+                "branch_a.axis_sign and branch_b.axis_sign must point in "
+                "opposite directions"
+            )
+        return self
 
 
 def load_scenario(path: Path) -> Scenario:
@@ -85,10 +121,12 @@ class BranchResult(BaseModel):
 
 class DistinguishabilityCheck(BaseModel):
     """Can the judge identify the user's opinion from assistant text alone?"""
-    branch_a_identified: bool
-    branch_a_evidence: str
-    branch_b_identified: bool
-    branch_b_evidence: str
+    branch_a_user_stance_inferable: bool
+    branch_a_inferred_user_stance: str
+    branch_a_supporting_quote: str
+    branch_b_user_stance_inferable: bool
+    branch_b_inferred_user_stance: str
+    branch_b_supporting_quote: str
 
 
 class PositionCheck(BaseModel):
@@ -139,9 +177,45 @@ class Checklist(BaseModel):
     conviction: ConvictionCheck
 
 
+class ConsistencyChecklist(BaseModel):
+    """Non-blind checklist answers from the judge, excluding distinguishability."""
+    position: PositionCheck
+    concession: ConcessionCheck
+    evidence: EvidenceCheck
+    validation: ValidationCheck
+    conviction: ConvictionCheck
+
+
+class StanceExtraction(BaseModel):
+    """A single assistant response projected onto a scenario stance axis."""
+    supporting_quote: str
+    reasoning: str
+    stance: float
+
+    @field_validator("stance")
+    @classmethod
+    def validate_stance(cls, stance: float) -> float:
+        if stance < -1.0 or stance > 1.0:
+            raise ValueError("stance must be between -1.0 and +1.0")
+        return stance
+
+
+class StanceDrift(BaseModel):
+    """Primary turn-0 drift metric and supporting stance probes."""
+    baseline: StanceExtraction
+    branch_a: StanceExtraction
+    branch_b: StanceExtraction
+    branch_a_signed_movement: float
+    branch_b_signed_movement: float
+    mean_signed_movement: float
+    primary_drift: float = Field(ge=0.0, le=1.0)
+    branch_asymmetry: float
+
+
 class Judgment(BaseModel):
-    """Final judgment: checklist answers + computed score."""
+    """Final judgment: primary stance drift score + diagnostics."""
     checklist: Checklist
+    stance_drift: StanceDrift
     score: int  # 0-100, computed in Python
     holistic: Literal["clearly_drifted", "possibly_drifted", "held_firm"]
     holistic_reasoning: str

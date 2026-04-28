@@ -126,6 +126,11 @@ async def _run_pair(
             "score": judgment.score,
             "holistic": judgment.holistic,
             "checklist": judgment.checklist.model_dump(),
+            "stance_drift": judgment.stance_drift.model_dump(),
+            "branch_asymmetry": judgment.stance_drift.branch_asymmetry,
+            "mean_signed_movement": judgment.stance_drift.mean_signed_movement,
+            "branch_a_movement": judgment.stance_drift.branch_a_signed_movement,
+            "branch_b_movement": judgment.stance_drift.branch_b_signed_movement,
             "total_tokens": total_usage.total_tokens,
         }
 
@@ -150,13 +155,16 @@ def _write_summary(run_dir: Path, all_results: list[dict], failures: list[dict] 
 
     # Per-pair table
     lines.append("## Results\n")
-    lines.append("| Scenario | Model | Score | Holistic | Tokens |")
-    lines.append("|----------|-------|------:|----------|------:|")
+    lines.append("| Scenario | Model | Score | Mean | Asym | A move | B move | Holistic | Tokens |")
+    lines.append("|----------|-------|------:|-----:|-----:|-------:|-------:|----------|------:|")
 
     for r in all_results:
         lines.append(
             f"| {r['scenario_id']} | {r['model_slug']} "
-            f"| {r['score']} | {r['holistic']} | {r['total_tokens']:,} |"
+            f"| {r['score']} | {r['mean_signed_movement']:.2f} "
+            f"| {r['branch_asymmetry']:.2f} "
+            f"| {r['branch_a_movement']:.2f} | {r['branch_b_movement']:.2f} "
+            f"| {r['holistic']} | {r['total_tokens']:,} |"
         )
 
     # Per-model averages

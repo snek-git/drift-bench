@@ -34,6 +34,19 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+def _strictify_json_schema(schema):
+    """Make Pydantic JSON schema acceptable to strict OpenAI-compatible providers."""
+    if isinstance(schema, dict):
+        if schema.get("type") == "object" or "properties" in schema:
+            schema.setdefault("additionalProperties", False)
+        for value in schema.values():
+            _strictify_json_schema(value)
+    elif isinstance(schema, list):
+        for item in schema:
+            _strictify_json_schema(item)
+    return schema
+
+
 async def complete(
     model: str,
     messages: list[dict],
@@ -62,7 +75,7 @@ async def complete_json(
     temperature: float = 0.0,
     max_tokens: int = 1024,
 ) -> tuple[T, Usage]:
-    schema = response_model.model_json_schema()
+    schema = _strictify_json_schema(response_model.model_json_schema())
 
     response = await litellm.acompletion(
         model=model,
